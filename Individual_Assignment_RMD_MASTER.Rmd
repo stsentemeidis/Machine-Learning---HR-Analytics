@@ -1,0 +1,777 @@
+---
+title: "Machine Learning Individual Assignment"
+author: "Stavros Tsentemeidis"
+date: "2/17/2019"
+output:   
+  prettydoc::html_pretty:
+  theme: HPSTR
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading packages & Data
+
+Before starting our EDA and model development pipeline, we first need to install and load the necessary packages and also the data file **turnover** we are about to use.
+
+```{r Packages, echo = FALSE, include = FALSE, warning=FALSE, message=FALSE}
+packages_list <- c('readxl',
+                   'sjPlot',
+                   'sjmisc',
+                   'sjlabelled',
+                   'party',
+                   'Boruta',
+                   'prettydoc',
+                   'beeswarm',
+                   'arm',
+                   'rpart.plot',
+                   'rpart',
+                   'ROCR',
+                   'tidyr',
+                   'ggplot2',
+                   'corrplot',
+                   'InformationValue',
+                   'GGally',
+                   'gridExtra',
+                   'tree',
+                   'leaflet',
+                   'jtools',
+                   'lattice',
+                   'car',
+                   'caret',
+                   'MASS',
+                   'ggthemes',
+                   'RColorBrewer',
+                   'reshape',
+                   'tidyverse',
+                   'glmnet',
+                   'dummies',
+                   'fastDummies',
+                   'e1071',
+                   'dplyr',
+                   'anchors',
+                   'mlbench',
+                   'boot'
+                  )
+
+for (i in packages_list){
+  if(!i%in%installed.packages()){
+    install.packages(i, dependencies = TRUE)
+    library(i, character.only = TRUE)
+    print(paste0(i, ' has been installed'))
+  } else {
+    print(paste0(i, ' is already installed'))
+    library(i, character.only = TRUE)
+  }
+}
+
+turnover <- read.csv('turnover.csv', sep = ',', stringsAsFactors = T)
+```
+
+## Summary of the dataset
+
+From the below summary and description we can see that,
+
+* There are no **missing values**, so our dataset is complete.
+* The variables *left*, *work_accident* and *promotion_last_5years* are already **encoded** in 0,1.
+* The variables above need to be **converted** from *integer* to *factors*.
+* *Salary* and *sales* are categorical variables with 3 and 10 **levels** respectively. 
+
+```{r structure, echo=FALSE, warning=FALSE}
+str(turnover)
+```
+
+```{r summary, echo=FALSE, warning = FALSE}
+summary(turnover)
+```
+
+```{r transformations, echo = FALSE, include = FALSE, warning=FALSE, message=FALSE}
+turnover$number_project <- as.numeric(turnover$number_project)
+turnover$average_montly_hours <- as.numeric(turnover$average_montly_hours)
+turnover$time_spend_company <- as.numeric(turnover$time_spend_company)
+turnover$Work_accident <- as.factor(turnover$Work_accident)
+turnover$promotion_last_5years <- as.factor(turnover$promotion_last_5years)
+turnover$left <- as.factor(turnover$left)
+turnover$time_spend_company <- as.numeric(turnover$time_spend_company)
+```
+
+#### Sales Levels
+```{r Sales, echo=FALSE, warning = FALSE}
+summary(turnover$sales)
+```
+
+#### Salary Levels
+```{r Salary, echo=FALSE, warning = FALSE}
+summary(turnover$salary)
+```
+
+#### Promotion (No/Yes)
+```{r Promotion, echo=FALSE, warning = FALSE}
+summary(turnover$promotion_last_5years)
+```
+
+#### Left (No/Yes)
+```{r Left, echo=FALSE, warning = FALSE}
+summary(turnover$left)
+```
+
+#### Work Accident (No/Yes)
+```{r Work Accident, echo=FALSE, warning = FALSE}
+summary(turnover$Work_accident)
+```
+
+## Detecting anomalies : Skewness and Outliers
+
+In order to detect **outliers** in our data, we do plot the boxplots of the variables below. From the results we detect outliers on the variable *time_spend_company*. The frequencies of 7,8,10 when summed, conclude only 3% of our dataset so we decide to  remove them from our dataset from now, cause this variable will be rescaled in the next steps.
+
+```{r boxplots, echo=FALSE, warning = FALSE, fig.height=7, fig.width=9}
+par(mfrow=c(2,3))
+boxplot(turnover$number_project,horizontal = T,col = 'tomato')
+title("Boxplot of Number of Projects")
+boxplot(turnover$average_montly_hours,horizontal = T,col = 'tomato')
+title("Boxplot of Avg Monthly Hours")
+b3 <- boxplot(turnover$satisfaction_level,horizontal = T,col = 'tomato')
+title("Boxplot of Satisfaction Level")
+b4 <-boxplot(turnover$last_evaluation,horizontal = T,col = 'tomato')
+title("Boxplot of Last Evaluation")
+b5 <-boxplot(turnover$time_spend_company,horizontal = T,col = 'tomato')
+title("Boxplot of Time Spend Company")
+```
+
+
+```{r transformations time spend company, echo = FALSE, include = FALSE, warning=FALSE, message=FALSE}
+turnover <- turnover[turnover$time_spend_company<7,]
+```
+
+In order to detect **skewness** in our data, we do plot the histograms of the variables below and calculate the *skewness*() function. In order to evaluate our results on the skewness function we narrow the acceptable limits to (-2 , 2). So, it is decided that skewness is not a serious issue to be taken into account. Furthermore, the variable that needs scaling in order to reduce the impact it has on the models, cause of its excessive values compared to the rest, is the *average_monthly_hours*. The scaling of this variable is narrowed to the limits of (0,1).
+
+```{r histograms, echo=FALSE, warning = FALSE, fig.height=7, fig.width=9}
+par(mfrow=c(2,3))
+hist(turnover$number_project, col = "tomato",main = "Histogram of No Projects", xlab = 'No Projects')
+hist(turnover$average_montly_hours, col = "tomato",main = "Histogram of Avg Monthly Hours", xlab = 'Avg Monthly Hours')
+hist(turnover$time_spend_company, col = "tomato",main = "Histogram of Time Spend Company", xlab = 'Time Spend Company')
+hist(turnover$satisfaction_level, col = "tomato",main = "Histogram of Satisfaction Level", xlab = 'Satisfaction Level')
+hist(turnover$last_evaluation, col = "tomato",main = "Histogram of Last Evaluation", xlab = 'Last Evaluation')
+```
+```{r barchart, echo=FALSE, warning = FALSE}
+barchart(turnover$sales,col = 'tomato',main = "Barchart of Departments", xlab = 'Number of employees')
+```
+
+Variable  | Skewness Score
+------------- | -------------
+number_project    | 0.3376
+average_montly_hours       | 0.05283
+time_spend_company       | 1.8529
+satisfaction_level       | -0.4762
+last_evaluation       | -0.0266
+
+```{r Skewness No project, echo=FALSE, warning = FALSE, eval=FALSE}
+skewness(turnover$number_project)
+skewness(turnover$average_montly_hours)
+skewness(turnover$time_spend_company)
+skewness(turnover$satisfaction_level)
+skewness(turnover$last_evaluation)
+```
+
+
+```{r transformations avg monthly hours, echo = FALSE, include = FALSE, warning=FALSE, message=FALSE}
+range01 <- function(x){(x-min(x))/(max(x)-min(x))}
+turnover$average_montly_hours <- range01(turnover$average_montly_hours)
+```
+
+# Further Insights through Interesting Plots
+
+As mentioned before *sales* and *salary* are factor variables. Based on the below depicted graphs we can observe the distribution of employees across different departments, as well as whether they have left (blue) the company or not (red). As it can be observed, the majority of the employees are in *Sales*, *Technical* and *Support*.
+
+```{r insights, echo=FALSE, warning = FALSE, fig.height=7, fig.width=9}
+turnover$sales <- reorder(turnover$sales,turnover$sales,FUN=length)
+turnover$salary <- reorder(turnover$salary,turnover$salary,FUN=length)
+p1 <- ggplot(turnover, aes(x = turnover$sales, fill = turnover$left)) + geom_bar()+ 
+  theme_tufte(ticks = FALSE, base_size = 8)+
+  theme_minimal()+
+  ggtitle('Employees per Department')+
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.border = element_blank(),
+        axis.title = element_blank(),
+        axis.text.x = element_text(angle = 70, hjust = 1),
+        axis.ticks = element_blank(),
+        legend.position = 'None')
+
+p2 <- ggplot(turnover, aes(x = turnover$salary, fill = turnover$left)) + geom_bar()+ 
+  theme_tufte(ticks = FALSE, base_size = 8)+
+  theme_minimal()+
+  ggtitle('Employees per Salary Category')+
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.border = element_blank(),
+        axis.title = element_blank(),
+        axis.text.x = element_text(angle = 70, hjust = 1),
+        axis.ticks = element_blank(),
+        legend.position = 'None')
+
+grid.arrange(p1, p2,
+             nrow = 1,
+             ncol = 2)
+```
+
+In the below mentioned **beeswarm** plot we can observe the connection between *satisfaction level* of employees, distributed based on how much *time* they have been at the company and splitted on whether we have information of them leaving or not. An interesting fact, is that at the time period **4** most of the employees are unsatisfied and do leave the company, while at time period **5** many of them leave as well but with a relative satisfying feeling.
+
+![](/Users/stavrostsentemeidis/ML2test/BEESWARM_ML2.png)
+
+# Correlation Matrix & Factors unfolding
+
+In order to investigate the correlation between the variables, we have to unfold the factor ones, *sales* and *salary*. After doing that, we explore the matrix and we can notice that there is only one significant correlation and that is the one between *salary_low* and *salary_medium*.
+
+```{r correlation, echo=FALSE, warning = FALSE, fig.height=7, fig.width=9}
+turnover$promotion_last_5years <- as.numeric(as.factor(turnover$promotion_last_5years)) -1
+turnover$left <- as.numeric(as.factor(turnover$left)) -1
+turnover$Work_accident <- as.numeric(as.factor(turnover$Work_accident)) -1
+turnover_dummies <- fastDummies::dummy_cols(turnover)
+turnover_dummies$salary = NULL
+turnover_dummies$sales = NULL
+turnover_corr_1 <- cor(turnover_dummies)
+corrplot.mixed(turnover_corr_1,tl.pos = 'lt',diag = 'u', lower = NULL)
+
+```
+
+
+There are a few more things that can be done in order to improve our future model's performace.
+
+Grouping - Bining our variables  *number_project*, *time_spend_company*, *promotion_last_5years* and
+*Work_accident*. The reason why the 3 continuous ones are not binned is the fact that we are thinking of applying polynomial functions to these 3 variables, to possibly improve the fitting of our model.
+
+
+```{r Bin Number Project, echo=FALSE, warning = FALSE}
+lower_bound <- c(2,3,4,5)
+turnover_dummies$number_project <- findInterval(turnover_dummies$number_project , lower_bound)
+turnover_dummies$number_project <- as.numeric(turnover_dummies$number_project )
+```
+
+```{r Bin Time Spend Company, echo=FALSE, warning = FALSE}
+lower_bound <- c(2,3,4,5)
+turnover_dummies$time_spend_company <- findInterval(turnover_dummies$time_spend_company , lower_bound)
+turnover_dummies$time_spend_company <- as.numeric(turnover_dummies$time_spend_company )
+```
+
+```{r To_Factors, echo=FALSE, warning = FALSE}
+
+turnover_dummies$time_spend_company <- as.factor(turnover_dummies$time_spend_company )
+turnover_dummies$number_project <- as.factor(turnover_dummies$number_project )
+turnover_dummies$promotion_last_5years <- as.factor(turnover_dummies$promotion_last_5years )
+turnover_dummies$Work_accident <- as.factor(turnover_dummies$Work_accident )
+```
+
+```{r New_Dummies, echo=FALSE, warning = FALSE}
+turnover_dummies <- fastDummies::dummy_cols(turnover_dummies)
+
+turnover_dummies$number_project <- NULL
+turnover_dummies$time_spend_company <- NULL
+turnover_dummies$promotion_last_5years <- NULL
+turnover_dummies$Work_accident <- NULL
+```
+
+After doing these transformations and removing the initial columns to avoid *multicollinearity*, we plot once more the correlation matrix to find strong correlations between our variables.
+
+```{r New_correlation, echo=FALSE, warning = FALSE, fig.height=7, fig.width=9}
+turnover_corr_2 <- cor(turnover_dummies)
+corrplot.mixed(turnover_corr_2,tl.pos = 'lt',diag = 'u', lower = NULL, number.cex= 0.1)
+```
+
+Some of the strongs **correlations** depicted above include the ones between *salary medium* and *salary low*, *work_accident_0* and *work_accident_1*, *promotion_last_5years_0* and *promotion_last_5years_1*. We should take these into account during our feature engineering process, in order to remove redundant variables from the model, to reduce complexity.
+
+# Model Development
+
+Now that we have our dataset cleaned and prepared to be used, we can develop our baseline **logistic regression model**. This model will be our benchmark for the rest of our model development process. 
+
+* We set our **seed** to make our process reproducable.
+* Split to **trainingData** and **testData** with a proportion of 80% and 20% respectively.
+* Define the **train_control** variable, which is basically the properites of the **Cross Validation** process we are going to use for our trained model.
+* Develop our **model** with its formula.
+* Look at the *summary*, *rfe* and *boruta* methods of the model:
+  + **Significant** variables to keep or remove from our model formula.
+  + **Average Cross Validation error** for our trained model on the training data.
+* Make **predictions** on our testData (hold-out set) and compare with our CV error.
+* **Repeate** the same process with *multiple seeds* in order to get an average accuracy score, to double check for overfitting.
+
+
+```{r Train-Test Split, echo=FALSE, warning = FALSE}
+set.seed(2000)
+train.size <- 0.8
+train.index <- sample.int(length(turnover_dummies$left), round(length(turnover_dummies$left) * train.size))
+trainingData <- turnover_dummies[train.index,]
+testData <- turnover_dummies[-train.index,]
+
+trainingData$left <- as.character(trainingData$left)
+trainingData$left <- factor(trainingData$left,levels = c(0,1), label = c(0, 1))
+testData$left <- as.character(testData$left)
+testData$left <- factor(testData$left,levels = c(0,1), label = c(0, 1))
+
+```
+
+# Baseline model
+
+```{r MODEL 1, echo=FALSE, warning = FALSE}
+train_control <- trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions = TRUE
+)
+
+model_1 <- train(left ~ ., 
+                 data=trainingData, 
+                 trControl=train_control, 
+                 method="glm",
+                 family="binomial")
+```
+
+#### Summary of model
+
+```{r MODEL 1a, echo=FALSE, warning = FALSE}
+model_1$finalModel
+```
+
+#### Average 10-Fold Cross Validation Accuracy
+
+```{r MODEL 1b, echo=FALSE, warning = FALSE}
+model_1$results[2]
+```
+
+#### Variables Importance
+
+```{r MODEL 1c, echo=FALSE, warning = FALSE}
+varImp(model_1)
+```
+
+#### Confusion Matrix
+
+```{r Predictions 1, echo=FALSE, warning = FALSE}
+fitted.results_1 <- predict(model_1,newdata=testData,type = 'prob')
+fitted.results_1 <- ifelse(fitted.results_1$`0` > 0.5,0,1)
+table(fitted.results_1,testData$left)
+```
+
+#### Accuracy on hold-out set.
+
+```{r Prediction 2, echo=FALSE, warning = FALSE}
+misClasificError_1 <- mean(fitted.results_1 != testData$left)
+print(paste(1-misClasificError_1))
+```
+
+
+
+#### Boruta or Backwards Elimination Approach
+Boruta approach is a **Wrapper method** built around the random forest classification algorithm. The importance measure of an attribute is obtained as the loss of accuracy of classification caused by the random permutation of attribute values between objects.   
+We decided to use this method cause:
+
+* It works well for both classification and regression problem.
+* It takes into account multi-variable relationships.
+* It follows an all-relevant variable selection method in which it considers all features which are relevant to the outcome variable.  
+
+Some things to keep in mind for this algorithm are:   
+
+*   **Impute missing values** - Make sure missing or blank values are filled up before running boruta algorithm.
+*   **Collinearity** - It is important to handle collinearity after getting important variables from boruta.
+*   **Slow Speed** - It is slow in terms of speed as compared to other traditional feature selection algorithms.
+
+
+
+Variables having boxplot in green shows all predictors are important. If boxplots are in red, it shows they are rejected. And yellow color of box plot indicates they are tentative. Tentative Attributes refers to importance score so close to their best shadow attributes that Boruta is unable to decide in default number of random forest runs.
+
+
+```{r Boruta 1a, echo=FALSE, warning = FALSE , eval= FALSE}
+boruta_output_1 <- Boruta(left ~ ., data=trainingData, doTrace=2)
+boruta_signif_1 <- names(boruta_output_1$finalDecision[boruta_output_1$finalDecision %in% c("Confirmed", "Tentative")])
+saveRDS(boruta_output_1, file = "boruta_output_1.rds")
+saveRDS(boruta_signif_1, file = "boruta_signif_1.rds")
+```
+
+
+```{r Boruta 1b, echo=FALSE, warning = FALSE, fig.height=8, fig.width=11}
+boruta_output_1 <- readRDS(file = "boruta_output_1.rds")
+boruta_signif_1 <- readRDS(file = "boruta_signif_1.rds")
+boruta_signif_1
+plot(boruta_output_1, cex.axis=.7, las=2, xlab="", main="Variable Importance")
+```
+
+#### Recursive Feature Elimination (RFE) through Random Forest Development
+There is also another variable selection algorithm called **recursive feature elimination (RFE)**. It is also called backward selection. Briefly, this algorithm *fits* the model using all the independent variables, calculates their *importance*, *ranks* and *drops* the weakest ones and *rebuilds* a model till all the variables are used. For our classification approach, the metric used is *Accuracy* and the model is a **Random Forest**.
+
+
+#### Difference between **RFE** and **Boruta** Algorithms
+At this stage it is also important to clarify the use of both algorithms for feature selection. The **backward elimination** method  mentioned works on *removing* variable *iteratively* on the basis of p-value, while **RFE** is also a type of backward selection method *however* RFE works on feature ranking system. First a model is fit on logistic regression based on all variables. Then it calculates variable coefficients and their importance and it ranks the variable on the basis on logistic regression fit, in order to remove low ranking variable in each iteration. To sum up, we use both methods to *compare* *different* feature selection approaches, as well as to take into account the approach that gives us the most **interpretable** model.
+
+```{r Rf 1a, echo=FALSE, warning = FALSE , eval = FALSE}
+cf1 <- cforest(left ~ . , data= trainingData, control=cforest_unbiased(mtry=2,ntree=50))
+var_imp_rf <- varimp(cf1, conditional=TRUE)
+saveRDS(var_imp_rf, file = "var_imp_rf.rds")
+```
+
+
+```{r Rf 1b, echo=FALSE, warning = FALSE, eval = TRUE}
+var_imp_rf <- readRDS(file = "var_imp_rf.rds")
+var_imp_rf
+```
+
+```{r Rf 1c, echo=FALSE, warning = FALSE, eval = FALSE}
+control <- rfeControl(functions=rfFuncs, method="cv", number=10)
+rfe <- rfe(trainingData[,c(1,2,3,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29)], trainingData[,4], rfeControl=control)
+```
+
+```{r Rf 1d, echo=FALSE, warning = FALSE, eval = FALSE}
+print(rfe, top=20)
+plot(rfe, type=c("g", "o"), cex = 1.0)
+predictors(rfe)
+head(rfe$resample, 10)
+rfe$optVariables
+```
+
+After we get a score for our baseline model we move on with removing the variables that are not significant based on their performance on:
+
+* The **Boruta** and **Random Forest** approach
+* The **varImp** function.
+* Their **correlation** with other variables.
+
+At this point we will depict the results of the intermediate models we came up with during our pipeline (and can be find in the actual code), along with the necessary transformations and actions, till we get to the final model which we will analyze once more. Worth mentioning that for each new model (apart from the last 2 in which we tune the polynomial function), the *boruta* and *rfe* approaches are used to determine whether the variables left are significant or not.
+
+Model  | No Predictors | Avg CV Accuracy | Accuracy on Hold-Out 
+------------- | ------------- | ------------- | ------------- 
+1    | 28 | 0.88742 | 0.89851 
+2    | 18 | 0.88638 | 0.89643
+3    | 16 | 0.89453 | 0.90162 
+4    | 15 | 0.94665 | 0.94804 
+5    | 13 | 0.95670 | 0.95739
+  
+
+```{r MODEL 2, echo=FALSE, warning = FALSE, results="hide"}
+
+train_control <- trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions = TRUE
+)
+
+model_2 <- train(left ~ satisfaction_level + last_evaluation + average_montly_hours + sales_sales + sales_accounting + sales_technical + sales_support + sales_management + sales_RandD + salary_medium + number_project_1 + number_project_2 + number_project_3 + time_spend_company_1 + time_spend_company_2 + time_spend_company_3 + Work_accident_0 + promotion_last_5years_0, 
+                 data=trainingData, 
+                 trControl=train_control, 
+                 method="glm",
+                 family="binomial")
+summary(model_2)
+model_2
+varImp(model_2)
+
+```
+
+
+
+```{r Predictions 2a, echo=FALSE, warning = FALSE, results="hide"}
+
+fitted.results_2 <- predict(model_2,newdata=testData,type = 'prob')
+fitted.results_2 <- ifelse(fitted.results_2$`0` > 0.5,0,1)
+table(fitted.results_2,testData$left)
+misClasificError_2 <- mean(fitted.results_2 != testData$left)
+print(paste('Accuracy',1-misClasificError_2))
+# plotROC(testData$left,fitted.results_2)
+
+```
+
+```{r Boruta 2a, echo=FALSE, warning = FALSE , eval = FALSE, results="hide"}
+boruta_output_2 <- Boruta(left ~ satisfaction_level + last_evaluation + average_montly_hours + sales_sales + sales_accounting + sales_technical + sales_support + sales_management + sales_RandD + salary_medium + number_project_1 + number_project_2 + number_project_3 + time_spend_company_1 + time_spend_company_2 + time_spend_company_3 + Work_accident_0 + promotion_last_5years_0, data=trainingData, doTrace=2)
+boruta_signif_2 <- names(boruta_output_2$finalDecision[boruta_output_2$finalDecision %in% c("Confirmed", "Tentative")])
+saveRDS(boruta_output_2, file = "boruta_output_2.rds")
+saveRDS(boruta_signif_2, file = "boruta_signif_2.rds")
+```
+
+```{r Boruta 2b, echo=FALSE, warning = FALSE, fig.height=8, fig.width=11,results="hide", eval = FALSE}
+boruta_output_2 <- readRDS(file = "boruta_output_2.rds")
+boruta_signif_2 <- readRDS(file = "boruta_signif_2.rds")
+boruta_signif_2
+plot(boruta_output_2, cex.axis=.7, las=2, xlab="", main="Variable Importance")
+```
+
+```{r Rf 2a, echo=FALSE, warning = FALSE , eval = FALSE,results="hide"}
+cf2 <- cforest(left ~ satisfaction_level + last_evaluation + average_montly_hours + sales_sales + sales_accounting + sales_technical + sales_support + sales_management + sales_RandD + salary_medium + number_project_1 + number_project_2 + number_project_3 + time_spend_company_1 + time_spend_company_2 + time_spend_company_3 + Work_accident_0 + promotion_last_5years_0 , data= trainingData, control=cforest_unbiased(mtry=2,ntree=50))
+
+var_imp_rf_2 <- varimp(cf2, conditional=TRUE)
+saveRDS(var_imp_rf_2, file = "var_imp_rf_2.rds")
+```
+
+```{r Rf 2b, echo=FALSE, warning = FALSE,eval=FALSE,results="hide"}
+var_imp_rf_2 <- readRDS(file = "var_imp_rf_2.rds")
+var_imp_rf_2
+```
+
+```{r Rf 2ca, echo=FALSE, warning = FALSE,eval=FALSE,results="hide"}
+control <- rfeControl(functions=rfFuncs, method="cv", number=10)
+rfe_2 <- rfe(trainingData[,c(1,2,3,5,6,8,9,10,14,16,18,20,21,22,24,25,26,28)], trainingData[,4], rfeControl=control)
+```
+
+```{r Rf 2d, echo=FALSE, warning = FALSE,eval=FALSE,results="hide"}
+print(rfe_2, top=20)
+plot(rfe_2, type=c("g", "o"), cex = 1.0)
+predictors(rfe_2)
+head(rfe_2$resample, 10)
+rfe_2$optVariables
+```
+
+We observe that our model has shown some improvement by removing *insignificant* variables and dealing with multicollinearity. However, in order to notice further accuracy increase we decide to implement **polynomial** of degree 2 to our 3 continuous variables **(satisfaction_level, last_evaluation, time_spend_company)**. By doing that, we try to fit our model in order to detect non linear relationships as well. We also reduce further the number of predictors as mentioned before.
+
+```{r MODEL 3, echo=FALSE, warning = FALSE, results="hide"}
+
+train_control <- trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions = TRUE
+)
+
+model_3 <- train(left ~ poly(satisfaction_level,2) + poly(last_evaluation,2) + poly(average_montly_hours,2) + sales_sales + sales_accounting + sales_technical + sales_support + sales_management + sales_RandD + salary_medium + number_project_1 + number_project_2 + number_project_3 + time_spend_company_1 + time_spend_company_2 + time_spend_company_3 + Work_accident_0 + promotion_last_5years_0, 
+                 data=trainingData, 
+                 trControl=train_control, 
+                 method="glm",
+                 family="binomial")
+summary(model_3)
+model_3
+varImp(model_3)
+
+```
+
+
+```{r Predictions 3a, echo=FALSE, warning = FALSE, results="hide"}
+
+fitted.results_3 <- predict(model_3,newdata=testData,type = 'prob')
+fitted.results_3 <- ifelse(fitted.results_3$`0` > 0.5,0,1)
+table(fitted.results_3,testData$left)
+misClasificError_3 <- mean(fitted.results_3 != testData$left)
+print(paste('Accuracy',1-misClasificError_3))
+# plotROC(testData$left,fitted.results_3)
+
+```
+
+```{r Boruta 3a, echo=FALSE, warning = FALSE , eval = FALSE, results="hide"}
+boruta_output_3 <- Boruta(left ~ poly(satisfaction_level,2) + poly(last_evaluation,2) + poly(average_montly_hours,2) + sales_sales + sales_accounting + sales_technical + sales_support + sales_management + sales_RandD + salary_medium + number_project_1 + number_project_2 + number_project_3 + time_spend_company_1 + time_spend_company_2 + time_spend_company_3 + Work_accident_0 + promotion_last_5years_0, data=trainingData, doTrace=2)
+boruta_signif_3 <- names(boruta_output_2$finalDecision[boruta_output_2$finalDecision %in% c("Confirmed", "Tentative")])
+saveRDS(boruta_output_3, file = "boruta_output_3.rds")
+saveRDS(boruta_signif_3, file = "boruta_signif_3.rds")
+```
+
+```{r Boruta 3b, echo=FALSE, warning = FALSE, fig.height=8, fig.width=11,results="hide", eval = FALSE}
+boruta_output_3 <- readRDS(file = "boruta_output_3.rds")
+boruta_signif_3 <- readRDS(file = "boruta_signif_3.rds")
+boruta_signif_3
+plot(boruta_output_3, cex.axis=.7, las=2, xlab="", main="Variable Importance")
+```
+
+```{r Rf 3a, echo=FALSE, warning = FALSE , eval = FALSE,results="hide"}
+cf3 <- cforest(left ~ satisfaction_level + last_evaluation +average_montly_hours + sales_sales  + sales_technical + sales_support + sales_management  + salary_medium + number_project_1 + number_project_2 + number_project_3 + time_spend_company_1 + time_spend_company_2 + time_spend_company_3 + Work_accident_0 + promotion_last_5years_0 , data= trainingData, control=cforest_unbiased(mtry=2,ntree=50))
+
+var_imp_rf_3 <- varimp(cf3, conditional=TRUE)
+saveRDS(var_imp_rf_3, file = "var_imp_rf_3.rds")
+```
+
+```{r Rf 3b, echo=FALSE, warning = FALSE,results="hide",, eval = FALSE}
+var_imp_rf_3 <- readRDS(file = "var_imp_rf_3.rds")
+var_imp_rf_3
+```
+
+```{r Rf 3c, echo=FALSE, warning = FALSE,eval=FALSE,results="hide"}
+control <- rfeControl(functions=rfFuncs, method="cv", number=10)
+rfe_3 <- rfe(trainingData[,c(1,2,3,5,8,9,10,16,18,20,21,22,24,25,26,28)], trainingData[,4], rfeControl=control)
+```
+
+```{r Rf 3d, echo=FALSE, warning = FALSE,eval=FALSE, results="hide"}
+print(rfe_3, top=20)
+plot(rfe_3, type=c("g", "o"), cex = 1.0)
+predictors(rfe_3)
+head(rfe_3$resample, 10)
+rfe_3$optVariables
+```
+
+```{r MODEL 4, echo=FALSE, warning = FALSE, results="hide"}
+
+train_control <- trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions = TRUE
+)
+
+model_4 <- train(left ~ poly(satisfaction_level,5) + poly(last_evaluation,4) + poly(average_montly_hours,5) + sales_sales + sales_accounting + sales_technical + sales_support + sales_management + sales_RandD + salary_medium + number_project_1 + number_project_2 + number_project_3 + time_spend_company_1 + time_spend_company_2 + time_spend_company_3 + Work_accident_0 + promotion_last_5years_0, 
+                 data=trainingData, 
+                 trControl=train_control, 
+                 method="glm",
+                 family="binomial")
+summary(model_4)
+model_4
+varImp(model_4)
+
+```
+
+
+```{r Predictions 4a, echo=FALSE, warning = FALSE, results="hide"}
+
+fitted.results_4 <- predict(model_4,newdata=testData,type = 'prob')
+fitted.results_4 <- ifelse(fitted.results_4$`0` > 0.5,0,1)
+table(fitted.results_4,testData$left)
+misClasificError_4 <- mean(fitted.results_4 != testData$left)
+print(paste('Accuracy',1-misClasificError_4))
+# plotROC(testData$left,fitted.results_4)
+
+```
+
+Furthermore, we notice a *significant* improve in both our Accuracy score for CV, but also for our predicted values on the unseen dataset. By looking at the significant variables, we detect new insignificant variables which we remove. Furthermore, after experimenting with *bigger* polynomial degrees we find that the optimal combination of the 3, before the Accuracy of the hold-out dataset starts to decrease, is the one mentioned on the last model (number 6). We still keep in mind though, that we need to be careful in case our model overfits, which we will check at the end of the process when we are happy with the specfic model.
+
+```{r MODEL 5, echo=FALSE, warning = FALSE, results="hide"}
+
+train_control <- trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions = TRUE
+)
+
+model_5 <- train(left ~ poly(satisfaction_level,8) + poly(last_evaluation,7) + poly(average_montly_hours,9) + sales_sales + sales_accounting + sales_technical + sales_support + sales_management + sales_RandD + salary_medium + number_project_1 + number_project_2 + number_project_3 + time_spend_company_1 + time_spend_company_2 + time_spend_company_3 + Work_accident_0 + promotion_last_5years_0
+                 , 
+                 data=trainingData, 
+                 trControl=train_control, 
+                 method="glm",
+                 family="binomial")
+summary(model_5)
+model_5
+varImp(model_5)
+
+```
+
+```{r Predictions 5a, echo=FALSE, warning = FALSE, results="hide"}
+
+fitted.results_5 <- predict(model_5,newdata=testData,type = 'prob')
+fitted.results_5 <- ifelse(fitted.results_5$`0` > 0.4,0,1)
+table(fitted.results_5,testData$left)
+misClasificError_5 <- mean(fitted.results_5 != testData$left)
+print(paste('Accuracy',1-misClasificError_5))
+# plotROC(testData$left,fitted.results_5)
+
+```
+
+```{r MODEL 6, echo=FALSE, warning = FALSE, results="hide"}
+
+train_control <- trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions = TRUE
+)
+
+model_6 <- train(left ~ poly(satisfaction_level,11) + poly(last_evaluation,7) + poly(average_montly_hours,9)  + sales_management + sales_RandD + salary_medium + number_project_1 + number_project_2 + number_project_3 + time_spend_company_1 + time_spend_company_2 + time_spend_company_3 + Work_accident_0 
+                 , 
+                 data=trainingData, 
+                 trControl=train_control, 
+                 method="glm",
+                 family="binomial")
+summary(model_6)
+model_6
+# varImp(model_6)
+
+```
+
+
+```{r Predictions 6aa, echo=FALSE, warning = FALSE, results="hide"}
+
+fitted.results_6 <- predict(model_6,newdata=testData,type = 'prob')
+fitted.results_6 <- ifelse(fitted.results_6$`0` > 0.4,0,1)
+table(fitted.results_6,testData$left)
+misClasificError_6 <- mean(fitted.results_6 != testData$left)
+print(paste('Accuracy',1-misClasificError_6))
+# plotROC(testData$left,fitted.results_6)
+
+```
+
+#### Summary of final model.
+
+```{r MODEL 6a, echo=FALSE, warning = FALSE}
+model_6$finalModel
+```
+
+#### Average 10-Fold Cross Validation Accuracy
+
+```{r MODEL 6b, echo=FALSE, warning = FALSE}
+model_6$results[2]
+```
+
+#### Variables Importance
+
+```{r MODEL 6c, echo=FALSE, warning = FALSE}
+varImp(model_6)
+```
+
+#### Confusion Matrix
+
+```{r Predictionss 6a, echo=FALSE, warning = FALSE}
+fitted.results_6 <- predict(model_6,newdata=testData,type = 'prob')
+fitted.results_6 <- ifelse(fitted.results_6$`0` > 0.4,0,1)
+table(fitted.results_6,testData$left)
+```
+
+#### Accuracy on hold-out set.
+
+```{r Predictions 6b, echo=FALSE, warning = FALSE}
+misClasificError_6 <- mean(fitted.results_6 != testData$left)
+print(paste(1-misClasificError_6))
+```
+
+## Different Train - Test splits to check for overfitting.
+
+As we deided to incorporate high degrees of polynomials to our model, we need to check for *overfitting.* In order to do that, we tested our model with **50** different splits (50 different seeds). We write down the *CV score* and the *Actual accuracy* to the Hold-Out set and after that we take the average values that correspond to the* real accuracy* of our model.
+
+Seeds  | Avg CV Accuracy | Accuracy on Hold-Out | Seeds  | Avg CV Accuracy | Accuracy on Hold-Out | Avg CV Accuracy Total | Accuracy on Hold-Out Total
+------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | -------------
+100     | 0.9627 | 0.9550 | 2600 | 0.9608 | 0.9633 | **0.9605** | **0.9615**
+200     | 0.9611 | 0.9591 | 2700 | 0.9613 | 0.9588 
+300     | 0.9614 | 0.9602 | 2800 | 0.9602 | 0.9633 
+400     | 0.9603 | 0.9640 | 2900 | 0.9610 | 0.9616 
+500     | 0.9610 | 0.9605 | 3000 | 0.9609 | 0.9640 
+600     | 0.9615 | 0.9595 | 3100 | 0.9598 | 0.9584 
+700     | 0.9607 | 0.9595 | 3200 | 0.9597 | 0.9605 
+800     | 0.9594 | 0.9619 | 3300 | 0.9617 | 0.9602 
+900     | 0.9603 | 0.9616 | 3400 | 0.9586 | 0.9671 
+1000    | 0.9596 | 0.9667 | 3500 | 0.9600 | 0.9591 
+1100    | 0.9615 | 0.9567 | 3600 | 0.9586 | 0.9657 
+1200    | 0.9621 | 0.9577 | 3700 | 0.9596 | 0.9661 
+1300    | 0.9602 | 0.9616 | 3800 | 0.9605 | 0.9661 
+1400    | 0.9607 | 0.9591 | 3900 | 0.9610 | 0.9570 
+1500    | 0.9617 | 0.9584 | 4000 | 0.9624 | 0.9557 
+1600    | 0.9596 | 0.9626 | 4100 | 0.9597 | 0.9657 
+1700    | 0.9609 | 0.9609 | 4200 | 0.9604 | 0.9622 
+1800    | 0.9587 | 0.9619 | 4300 | 0.9626 | 0.9564 
+1900    | 0.9615 | 0.9584 | 4400 | 0.9599 | 0.9654
+2000    | 0.9604 | 0.9633 | 4500 | 0.9595 | 0.9626 
+2100    | 0.9606 | 0.9622 | 4600 | 0.9595 | 0.9622 
+2200    | 0.9608 | 0.9633 | 4700 | 0.9595 | 0.9654 
+2300    | 0.9600 | 0.9629 | 4800 | 0.9599 | 0.9636 
+2400    | 0.9598 | 0.9636 | 4900 | 0.9605 | 0.9622 
+2500    | 0.9609 | 0.9616 | 5000 | 0.9613 | 0.9595 
+
+
+# Conclusions
+
+This is our final model! We started with 28 explanatory variables and ended up with 13. Our *final* Accuracy score for both the CV and the hold-out dataset is **96.15**!
+
+However, this model development refers only to this specific split. In order to *verify* that our model is able to generalize that good, we reproduce the same pipeline for **different splits**, which means different *seeds* in our code.
+
+It is worth noticing, that all the values are pretty close for the different splits, which leads to the conclusion that our model is able to *generalize pretty well* and is able to perform *efficiently* in unseen data. 
+
+Regarding the predictors we end up with are:
+
+**Final Explanatory Variables**  | | |
+------------- | ------------- | ------------- |
+satisfaction_level     | last_evaluation | average_montly_hours | 
+salary_medium     | number_project_1 | number_project_2 |  
+number_project_3 | time_spend_company_1 | time_spend_company_2  |   
+time_spend_company_3 | Work_accident_0 | sales_management |  
+sales_management | sales_RandD |
+
+Based on the above mentioned results we conclude that factors that affect whether an employee left or not are:
+
+* How **satisfied** the employees are.
+* How they well were they **evaluated.**
+* How many hours do they work on average.
+* Whether they work on **2, 3 or 4** projects.
+* Whether they have been at the company for **2, 3 or 4** years.
+* That they did *not* have a **work accident**.
